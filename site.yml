@@ -1,0 +1,9 @@
+- hosts: db
+  become: true
+  collections:
+    - community.docker
+  roles:
+    - role: db_stack
+      vars:
+        postgres_db: "app"
+        postgres_user: "app"

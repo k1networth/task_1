@@ -1,0 +1,39 @@
+# Default settings for db_stack role.
+# Secrets must be provided via ansible-vault or via environment variables.
+
+db_stack_project_name: "db_stack"
+db_stack_project_dir: "/srv/db_stack"
+db_stack_backup_dir: "/srv/backups/postgres"
+
+# Docker images
+postgres_image: "postgres:16"
+# edoburu/pgbouncer includes pg_isready and other Postgres client tools
+# so we can implement a simple healthcheck. See runbook.md for rationale.
+pgbouncer_image: "edoburu/pgbouncer:v1.25.1-p0"
+
+# Postgres logical DB + user
+postgres_db: "app"
+postgres_user: "app"
+
+# Secrets (do NOT commit real values)
+# Provide this via:
+#   - ansible-vault (recommended): postgres_password: "..." in an encrypted vars file
+#   - environment variable: DB_STACK_POSTGRES_PASSWORD
+postgres_password: ""
+
+# PgBouncer settings
+pgbouncer_listen_port: 6432
+pgbouncer_pool_mode: "transaction"   # session|transaction|statement
+pgbouncer_auth_type: "md5"           # md5 is simplest for the assignment
+pgbouncer_max_client_conn: 200
+pgbouncer_default_pool_size: 20
+pgbouncer_reserve_pool_size: 5
+pgbouncer_server_reset_query: "DISCARD ALL"
+pgbouncer_ignore_startup_parameters: "extra_float_digits"
+pgbouncer_admin_users:
+  - "{{ postgres_user }}"
+
+# Backup schedule (cron, host-side)
+pg_backup_cron_hour: 2
+pg_backup_cron_minute: 15
+pg_backup_retention_days: 7

@@ -1,0 +1,13 @@
+# secrets
+.env
+*.vault_pass
+group_vars/**/vault.yml
+
+# local artifacts / data
+data/
+backups/
+*.sql
+*.sql.gz
+
+# ansible junk
+*.retry

@@ -1,0 +1,127 @@
+---
+- name: Preflight | ensure supported OS
+  ansible.builtin.assert:
+    that:
+      - ansible_os_family == "Debian"
+      - ansible_distribution == "Ubuntu"
+    fail_msg: "This role currently supports Ubuntu (22.04/24.04)."
+
+- name: Install packages | apt prerequisites
+  ansible.builtin.apt:
+    name:
+      - ca-certificates
+      - curl
+      - gnupg
+      - lsb-release
+      - cron
+      - docker.io
+      - docker-compose-v2
+      - python3-pip
+    state: present
+    update_cache: true
+
+- name: Install python deps for community.docker modules (APT, Ubuntu 24.04 safe)
+  ansible.builtin.apt:
+    name:
+      - python3-docker
+      - python3-yaml
+    state: present
+    update_cache: true
+
+- name: Ensure services are enabled and started
+  ansible.builtin.service:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+  loop:
+    - docker
+    - cron
+
+- name: Resolve secrets (vault vars OR environment variables)
+  ansible.builtin.set_fact:
+    db_stack_postgres_password: >-
+      {{ postgres_password
+         if (postgres_password | default('') | length > 0)
+         else lookup('env', 'DB_STACK_POSTGRES_PASSWORD') | default('', true) }}
+
+- name: Validate secrets are provided
+  ansible.builtin.assert:
+    that:
+      - db_stack_postgres_password | length > 0
+    fail_msg: >-
+      Postgres password is not set. Provide postgres_password via ansible-vault (preferred)
+      or export DB_STACK_POSTGRES_PASSWORD in the environment before running Ansible.
+
+- name: Create directories
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: "{{ db_stack_project_dir }}", mode: "0750" }
+    - { path: "{{ db_stack_project_dir }}/pgbouncer", mode: "0750" }
+    - { path: "{{ db_stack_project_dir }}/data", mode: "0750" }
+    - { path: "{{ db_stack_project_dir }}/data/postgres", mode: "0750" }
+    - { path: "{{ db_stack_backup_dir }}", mode: "0750" }
+
+- name: Render .env file (secrets stored on host, not in repo)
+  ansible.builtin.template:
+    src: env.j2
+    dest: "{{ db_stack_project_dir }}/.env"
+    owner: root
+    group: root
+    mode: "0600"
+  notify: Restart db_stack (docker compose)
+
+- name: Render docker-compose.yml
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: "{{ db_stack_project_dir }}/docker-compose.yml"
+    owner: root
+    group: root
+    mode: "0640"
+  notify: Restart db_stack (docker compose)
+
+- name: Render PgBouncer config
+  ansible.builtin.template:
+    src: pgbouncer.ini.j2
+    dest: "{{ db_stack_project_dir }}/pgbouncer/pgbouncer.ini"
+    owner: "70"
+    group: "70"
+    mode: "0644"
+  notify: Restart db_stack (docker compose)
+
+- name: Render PgBouncer userlist (plain password file, restricted perms)
+  ansible.builtin.template:
+    src: userlist.txt.j2
+    dest: "{{ db_stack_project_dir }}/pgbouncer/userlist.txt"
+    owner: "70"
+    group: "70"
+    mode: "0644"
+  notify: Restart db_stack (docker compose)
+
+- name: Install backup script
+  ansible.builtin.copy:
+    src: pg_backup.sh
+    dest: /usr/local/bin/pg_backup.sh
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: Install cron job for backups
+  ansible.builtin.template:
+    src: cron_pg_backup.j2
+    dest: /etc/cron.d/pg_backup
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Deploy stack with Docker Compose v2
+  community.docker.docker_compose_v2:
+    project_src: "{{ db_stack_project_dir }}"
+    project_name: "{{ db_stack_project_name }}"
+    state: present
+    pull: always
+    remove_orphans: true

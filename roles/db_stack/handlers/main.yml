@@ -1,0 +1,7 @@
+---
+- name: Restart db_stack (docker compose)
+  community.docker.docker_compose_v2:
+    project_src: "{{ db_stack_project_dir }}"
+    project_name: "{{ db_stack_project_name }}"
+    state: restarted
+    remove_orphans: true
